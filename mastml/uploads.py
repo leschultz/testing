@@ -85,8 +85,8 @@ class pack(object):
 
         self.foundry = Foundry()
         self.target = target
-        self.data_loc = None
-        self.model_loc = None
+        self.data_path = None
+        self.model_path = None
 
         logging.basicConfig(
                             filename="log.txt",
@@ -127,9 +127,8 @@ class pack(object):
                 except Exception:
                     raise Exception('No supported model format nor DlHub ID.')
 
-            logging.info('Loaded model from {}'.format(model_loc))
-
             self.model = model
+            logging.info('Loaded model from {}'.format(model_loc))
 
         # Both mode and data uploads require data information
         self.data_info = data_meta(df, self.target)
@@ -157,7 +156,7 @@ class pack(object):
         df = self.df
 
         # If data taken from MDF or user created.
-        if self.data_loc:
+        if self.data_path:
             update = True
         else:
             update = False
@@ -191,16 +190,21 @@ class pack(object):
                       authors,
                       ):
 
-        print(self.model._get_tags())
+        metadata = self.data_info
+        df = self.df
+        target = self.target
+
+        servable = {}
+        servable['type'] = 'sklearn'
+        servable['filepath'] = self.model_path
+        servable['n_input_columns'] = len(metadata['input_units'])
+        servable['classes'] = df[target].unique().tolist()
+
         model_info = {}
         model_info['authors'] = authors
         model_info['title'] = title
-        model_info['short_name'] = ''
-        model_info['servable'] = {}
-        model_info['servable']['type'] = servable_type
-        model_info['servable']['filepath'] = model_path
-        model_info['servable']['n_input_columns'] = len(metadata['input_units'])
-        model_info['servable']['classes'] = df[target].unique().tolist()
+        model_info['short_name'] = 'short_name'
+        model_info['servable'] = servable
 
         res = self.foundry.publish_model(model_info)
         logging.info('Model submission: {}'.format(res))  # Status
