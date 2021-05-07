@@ -3,6 +3,7 @@ from pyngrok import ngrok
 
 import pandas as pd
 import requests
+import logging
 import pickle
 import json
 import os
@@ -28,7 +29,7 @@ def units(x):
     return units
 
 
-def meta_super(df, target=None):
+def data_meta(df, target=None):
     '''
     Create the meatadata for a csv file.
 
@@ -67,84 +68,139 @@ def meta_super(df, target=None):
     return metadata
 
 
-def mdf_data(
-             data,
-             target,
-             exclude,
-             update,
-             title,
-             authors,
-             model_path=None,
-             servable_type=None
-             ):
+class pack(object):
     '''
-    Upload a dataset to the materials data facility (MDF).
-
-    inputs:
-        data = The location of the data file.
-        target = The column name for the target variable.
-        exclude = A list of columns to exclude from data.
-        update = Whether to update or create a new submission.
-        title = The title of the dataset.
-        authors = A list of authors.
+    A class to handle data and model curation.
     '''
 
-    # Load data
-    df = pd.read_csv(data)
+    def __init__(self, target, data_loc, model_loc=None):
+        '''
+        Start logging and load applicable items:
 
-    # Remove unused features
-    if exclude is not None:
-        df = df.drop(exclude, axis=1)
+        inputs:
+            target = The target variable.
+            data_loc = The location of data or MDF data name.
+            model_loc = (optional) The model location.
+        '''
 
-    metadata = meta_super(df, target)
+        self.foundry = Foundry()
+        self.target = target
+        self.data_loc = None
+        self.model_loc = None
 
-    # Make json
-    parsed = json.dumps(df.to_dict(), indent=2)
-    with open('foundry_dataframe.json', 'w') as outfile:
-        json.dump(parsed, outfile)
+        logging.basicConfig(
+                            filename="log.txt",
+                            level=logging.INFO,
+                            filemode="a+",
+                            format="%(asctime)-15s %(message)s"
+                            )
 
-    # Make url host
-    tunel = ngrok.connect()
-    url = tunel.public_url
+        # Load data
+        try:
 
-    # Push data
-    data = open('foundry_dataframe.json', 'rb')
-    requests.post(url, files={'data_': data})
+            # New data not in MDF
+            df = pd.read_csv(data_loc)
+            self.data_path = data_loc
 
-    # Upload to foundry
-    f = Foundry(no_browser=True, no_local_server=True)
-    res = f.publish(
-                    metadata,
-                    url,
-                    title,
-                    authors,
-                    update=update
-                    )
+        except Exception:
+            try:
+                df = self.foundry.load(data_loc, globus=False)
+                df = df.load_data()  # Foundry bug
+            except Exception:
+                raise Exception('No supported data format nor MDF ID.')
 
-    print('Data submission: {}'.format(res))  # Status
+        self.df = df
+        logging.info('Loaded data from {}'.format(data_loc))
 
-    # Status print
-    with open('log.txt', 'w') as outfile:
-        for i, j in res.items():
-            outfile.write('{}: {}\n'.format(i, j))
+        # Load model
+        if model_loc:
+            try:
 
-        outfile.write('url: {}'.format(url))
+                # New model not in DlHub
+                with open(model_loc, 'rb') as infile:
+                    model = pickle.load(infile)
+                self.model_path = model_loc
 
-    # Load model
-    if (model_path is not None) and (servable_type is not None):
+            except Exception:
+                try:
+                    model = 'dlhub'
+                except Exception:
+                    raise Exception('No supported model format nor DlHub ID.')
 
+            logging.info('Loaded model from {}'.format(model_loc))
+
+            self.model = model
+
+        # Both mode and data uploads require data information
+        self.data_info = data_meta(df, self.target)
+
+    def get_data(self):
+        return self.df
+
+    def get_model(self):
+        return self.model
+
+    def publish_data(
+                     self,
+                     title,
+                     authors,
+                     ):
+        '''
+        Upload a dataset to the materials data facility (MDF).
+
+        inputs:
+            title = The title of the dataset.
+            authors = A list of authors.
+        '''
+
+        # Load data
+        df = self.df
+
+        # If data taken from MDF or user created.
+        if self.data_loc:
+            update = True
+        else:
+            update = False
+
+        # Make json
+        parsed = json.dumps(df.to_dict(), indent=2)
+
+        # Make url host
+        url = ngrok.connect().public_url
+
+        # Push data
+        requests.post(url, files={'data_': parsed})
+
+        # Upload to foundry
+        res = self.foundry.publish(
+                                   self.data_info,
+                                   url,
+                                   title,
+                                   authors,
+                                   update=True
+                                   )
+
+        ngrok.disconnect(url)
+
+        logging.info('Data submission: {}'.format(res))  # Status
+        logging.info('url: {}'.format(url))
+
+    def publish_model(
+                      self,
+                      title,
+                      authors,
+                      ):
+
+        print(self.model._get_tags())
         model_info = {}
         model_info['authors'] = authors
         model_info['title'] = title
-        model_info['short_name'] = title+'_short'
+        model_info['short_name'] = ''
         model_info['servable'] = {}
         model_info['servable']['type'] = servable_type
         model_info['servable']['filepath'] = model_path
         model_info['servable']['n_input_columns'] = len(metadata['input_units'])
         model_info['servable']['classes'] = df[target].unique().tolist()
 
-        res = f.publish_model(model_info)
-        print('Model submission: {}'.format(res))  # Status
-
-    # Disconnect url
-    ngrok.disconnect(tunel.public_url)
+        res = self.foundry.publish_model(model_info)
+        logging.info('Model submission: {}'.format(res))  # Status
