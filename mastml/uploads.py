@@ -176,7 +176,7 @@ class pack(object):
                                    url,
                                    title,
                                    authors,
-                                   update=True
+                                   update=update
                                    )
 
         ngrok.disconnect(url)
@@ -187,6 +187,7 @@ class pack(object):
     def publish_model(
                       self,
                       title,
+                      short_title,
                       authors,
                       ):
 
@@ -203,7 +204,7 @@ class pack(object):
         model_info = {}
         model_info['authors'] = authors
         model_info['title'] = title
-        model_info['short_name'] = 'short_name'
+        model_info['short_name'] = short_title
         model_info['servable'] = servable
 
         res = self.foundry.publish_model(model_info)
