@@ -104,8 +104,13 @@ class pack(object):
 
         except Exception:
             try:
+
+                # Make a dataframe from downloaded data
                 df = self.foundry.load(data_loc, globus=False)
-                df = df.load_data()  # Foundry bug
+                X, y = df.load_data()
+                X = pd.DataFrame(X)
+                y = pd.DataFrame(y)
+                df = pd.concat([X, y], axis=1)
             except Exception:
                 raise Exception('No supported data format nor MDF ID.')
 
@@ -124,6 +129,7 @@ class pack(object):
             except Exception:
                 try:
                     model = 'dlhub'
+                    print(self.foundry.describe_servable(model_loc))
                 except Exception:
                     raise Exception('No supported model format nor DlHub ID.')
 
@@ -156,7 +162,7 @@ class pack(object):
         df = self.df
 
         # If data taken from MDF or user created.
-        if self.data_path:
+        if self.data_path is None:
             update = True
         else:
             update = False
@@ -206,6 +212,6 @@ class pack(object):
         model_info['title'] = title
         model_info['short_name'] = short_title
         model_info['servable'] = servable
-
+        
         res = self.foundry.publish_model(model_info)
         logging.info('Model submission: {}'.format(res))  # Status
